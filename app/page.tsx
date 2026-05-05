@@ -56,7 +56,7 @@ export default function Home() {
               <div className="mt-10">
                 <div className="mb-2 flex items-center gap-2 pl-2">
                   <button
-                    className="inline-flex items-center gap-1.5 rounded-full bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700"
+                    className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-200"
                     type="button"
                   >
                     <svg
