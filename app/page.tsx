@@ -30,6 +30,12 @@ type Generation = {
 const ASPECT_RATIOS: AspectRatio[] = ["1:1", "16:9", "9:16"];
 const IMAGE_SIZES: ImageSize[] = ["1K", "2K", "4K"];
 
+const aspectIconBox: Record<AspectRatio, { w: number; h: number }> = {
+  "1:1": { w: 10, h: 10 },
+  "16:9": { w: 12, h: 7 },
+  "9:16": { w: 7, h: 12 },
+};
+
 export default function Home() {
   const [prompt, setPrompt] = useState("");
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1");
@@ -239,7 +245,7 @@ export default function Home() {
           <div className="flex justify-center pt-16 md:pt-24">
             <div className="w-full max-w-3xl">
               <h1 className="text-center text-4xl font-semibold tracking-normal text-zinc-950 sm:text-4xl">
-                Create studio-quality visuals
+                Create studio quality visuals
               </h1>
               <p className="mx-auto mt-4 max-w-2xl text-center text-base leading-7 text-zinc-500">
                 Generate images and videos for products, campaigns, and social
@@ -391,20 +397,39 @@ export default function Home() {
                         role="group"
                         aria-label="Aspect ratio"
                       >
-                        {ASPECT_RATIOS.map((ratio) => (
-                          <button
-                            key={ratio}
-                            type="button"
-                            onClick={() => setAspectRatio(ratio)}
-                            aria-pressed={aspectRatio === ratio}
-                            className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${aspectRatio === ratio
+                        {ASPECT_RATIOS.map((ratio) => {
+                          const box = aspectIconBox[ratio];
+                          return (
+                            <button
+                              key={ratio}
+                              type="button"
+                              onClick={() => setAspectRatio(ratio)}
+                              aria-pressed={aspectRatio === ratio}
+                              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition ${aspectRatio === ratio
                                 ? "bg-white text-zinc-900 shadow-xs"
                                 : "text-zinc-500 hover:text-zinc-800"
-                              }`}
-                          >
-                            {ratio}
-                          </button>
-                        ))}
+                                }`}
+                            >
+                              <svg
+                                className="size-3.5 shrink-0"
+                                viewBox="0 0 16 16"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.5"
+                                aria-hidden="true"
+                              >
+                                <rect
+                                  x={(16 - box.w) / 2}
+                                  y={(16 - box.h) / 2}
+                                  width={box.w}
+                                  height={box.h}
+                                  rx="1.5"
+                                />
+                              </svg>
+                              {ratio}
+                            </button>
+                          );
+                        })}
                       </div>
 
                       <div className="relative">
