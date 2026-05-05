@@ -346,16 +346,54 @@ export default function Home() {
     if (gen.imageSize) setImageSize(gen.imageSize);
     document.getElementById("prompt")?.focus();
 
+    const tempId = crypto.randomUUID();
+    setReferences((prev) => [
+      ...prev,
+      {
+        id: tempId,
+        fileName: `studiobase-${gen.id}.png`,
+        localUrl: gen.imageUrl,
+        status: "uploading",
+      },
+    ]);
+
     try {
-      const res = await fetch(gen.imageUrl);
-      const blob = await res.blob();
-      const file = new File([blob], `studiobase-${gen.id}.png`, {
-        type: blob.type || "image/png",
+      const res = await fetch("/api/edit-generation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ generationId: gen.id }),
       });
-      await uploadReference(file);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error ?? "Could not load image to edit");
+      }
+      setReferences((prev) =>
+        prev.map((r) =>
+          r.id === tempId
+            ? {
+                ...r,
+                status: "ready",
+                localUrl: data.viewUrl,
+                viewUrl: data.viewUrl,
+                key: data.key,
+              }
+            : r,
+        ),
+      );
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Could not load image to edit",
+      setReferences((prev) =>
+        prev.map((r) =>
+          r.id === tempId
+            ? {
+                ...r,
+                status: "error",
+                error:
+                  err instanceof Error
+                    ? err.message
+                    : "Could not load image to edit",
+              }
+            : r,
+        ),
       );
     }
   }
