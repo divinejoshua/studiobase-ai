@@ -16,12 +16,6 @@ type Generation = {
 const ASPECT_RATIOS: AspectRatio[] = ["1:1", "16:9", "9:16"];
 const IMAGE_SIZES: ImageSize[] = ["1K", "2K", "4K"];
 
-const aspectClass: Record<AspectRatio, string> = {
-  "1:1": "aspect-square",
-  "16:9": "aspect-[16/9]",
-  "9:16": "aspect-[9/16]",
-};
-
 export default function Home() {
   const [prompt, setPrompt] = useState("");
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1");
@@ -275,14 +269,12 @@ export default function Home() {
                     className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-xs"
                     key={gen.id}
                   >
-                    <div
-                      className={`relative w-full overflow-hidden bg-zinc-100 ${aspectClass[gen.aspectRatio]}`}
-                    >
+                    <div className="relative aspect-square w-full overflow-hidden bg-zinc-100">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={gen.imageUrl}
                         alt={gen.prompt}
-                        className="h-full w-full object-cover"
+                        className="absolute inset-0 h-full w-full object-contain"
                       />
                     </div>
                     <div className="space-y-1 p-3">
