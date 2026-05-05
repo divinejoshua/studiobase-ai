@@ -53,18 +53,45 @@ export default function Home() {
                 stories.
               </p>
 
-              <form className="mt-10 rounded-2xl border border-zinc-200 bg-white p-4 shadow-xs">
-                <label className="sr-only" htmlFor="prompt">
-                  Prompt
-                </label>
-                <textarea
-                  className="min-h-12 w-full resize-none bg-transparent text-base leading-6 text-zinc-900 outline-none placeholder:text-zinc-400"
-                  id="prompt"
-                  placeholder="Describe an image or video to create"
-                />
+              <div className="mt-10">
+                <div className="mb-2 flex items-center gap-2 pl-2">
+                  <button
+                    className="inline-flex items-center gap-1.5 rounded-full bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700"
+                    type="button"
+                  >
+                    <svg
+                      className="size-3.5"
+                      viewBox="0 0 20 20"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <polyline points="4 10 8 14 16 6" />
+                    </svg>
+                    Image
+                  </button>
+                  <button
+                    className="rounded-full px-3 py-1.5 text-sm font-medium text-zinc-500 transition hover:bg-zinc-100"
+                    type="button"
+                  >
+                    Video
+                  </button>
+                </div>
 
-                <div className="mt-3 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
+                <form className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-xs">
+                  <label className="sr-only" htmlFor="prompt">
+                    Prompt
+                  </label>
+                  <textarea
+                    className="min-h-12 w-full resize-none bg-transparent text-base leading-6 text-zinc-900 outline-none placeholder:text-zinc-400"
+                    id="prompt"
+                    placeholder="Describe an image or video to create"
+                  />
+
+                  <div className="mt-3 flex items-center justify-between gap-3">
                     <button
                       className="grid size-8 place-items-center rounded-full text-xl leading-none text-zinc-500 transition hover:bg-zinc-100"
                       type="button"
@@ -73,30 +100,18 @@ export default function Home() {
                     >
                       +
                     </button>
+
                     <button
-                      className="rounded-full bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-200"
-                      type="button"
+                      className="grid size-9 place-items-center rounded-full bg-zinc-900 text-lg leading-none text-white transition hover:bg-zinc-700"
+                      type="submit"
+                      aria-label="Generate"
+                      title="Generate"
                     >
-                      Image
-                    </button>
-                    <button
-                      className="rounded-full px-3 py-1.5 text-sm font-medium text-zinc-500 transition hover:bg-zinc-100"
-                      type="button"
-                    >
-                      Video
+                      →
                     </button>
                   </div>
-
-                  <button
-                    className="grid size-9 place-items-center rounded-full bg-zinc-900 text-lg leading-none text-white transition hover:bg-zinc-700"
-                    type="submit"
-                    aria-label="Generate"
-                    title="Generate"
-                  >
-                    →
-                  </button>
-                </div>
-              </form>
+                </form>
+              </div>
 
             </div>
           </div>
