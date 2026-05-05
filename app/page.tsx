@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 const quickActions = ["Image prompt", "Video concept", "Product shot"];
 
 const recentAssets = [
@@ -25,7 +27,18 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-white text-zinc-950">
       <header className="fixed left-0 top-0 z-10 flex h-16 w-full items-center px-4 sm:px-6 md:px-10">
-        <a className="font-semibold tracking-normal text-zinc-950" href="#">
+        <a
+          className="flex items-center gap-2 font-semibold tracking-normal text-zinc-950"
+          href="#"
+        >
+          <Image
+            src="/logo.png"
+            alt=""
+            width={24}
+            height={24}
+            className="size-6 rounded-md"
+            priority
+          />
           Studiobase
         </a>
       </header>
