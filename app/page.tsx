@@ -15,6 +15,7 @@ import {
 
 type AspectRatio = "1:1" | "16:9" | "9:16";
 type ImageSize = "1K" | "2K" | "4K";
+type MediaType = "image" | "video" | "audio";
 
 type Reference = {
   id: string;
@@ -22,11 +23,13 @@ type Reference = {
   localUrl: string;
   status: "uploading" | "ready" | "error";
   viewUrl?: string;
+  key?: string;
   error?: string;
 };
 
 type Generation = {
   id: string;
+  mediaType: MediaType;
   prompt: string;
   aspectRatio: AspectRatio;
   imageSize?: ImageSize;
@@ -172,7 +175,14 @@ export default function Home() {
 
       setReferences((prev) =>
         prev.map((r) =>
-          r.id === id ? { ...r, status: "ready", viewUrl: presign.viewUrl } : r,
+          r.id === id
+            ? {
+                ...r,
+                status: "ready",
+                viewUrl: presign.viewUrl,
+                key: presign.key,
+              }
+            : r,
         ),
       );
     } catch (err) {
@@ -223,9 +233,9 @@ export default function Home() {
     setError(null);
 
     try {
-      const referenceUrls = references
-        .filter((r) => r.status === "ready" && r.viewUrl)
-        .map((r) => r.viewUrl as string);
+      const referenceKeys = references
+        .filter((r) => r.status === "ready" && r.key)
+        .map((r) => r.key as string);
 
       const res = await fetch("/api/generate", {
         method: "POST",
@@ -234,7 +244,7 @@ export default function Home() {
           prompt: trimmed,
           aspectRatio,
           imageSize,
-          referenceUrls,
+          referenceKeys,
         }),
       });
 
@@ -245,11 +255,12 @@ export default function Home() {
 
       setGenerations((prev) => [
         {
-          id: crypto.randomUUID(),
-          prompt: trimmed,
-          aspectRatio,
-          imageSize,
-          imageUrl: data.imageUrl,
+          id: data.generation.id,
+          mediaType: (data.generation.mediaType as MediaType) ?? "image",
+          prompt: data.generation.prompt,
+          aspectRatio: data.generation.aspectRatio as AspectRatio,
+          imageSize: data.generation.imageSize as ImageSize,
+          imageUrl: data.generation.imageUrl,
         },
         ...prev,
       ]);
@@ -279,6 +290,43 @@ export default function Home() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSignedIn, pendingSubmit]);
+
+  useEffect(() => {
+    if (!isSignedIn) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/generations");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled || !Array.isArray(data.generations)) return;
+        setGenerations(
+          data.generations.map(
+            (g: {
+              id: string;
+              mediaType?: string;
+              prompt: string;
+              aspectRatio: string;
+              imageSize: string;
+              imageUrl: string;
+            }) => ({
+              id: g.id,
+              mediaType: (g.mediaType as MediaType) ?? "image",
+              prompt: g.prompt,
+              aspectRatio: g.aspectRatio as AspectRatio,
+              imageSize: g.imageSize as ImageSize,
+              imageUrl: g.imageUrl,
+            }),
+          ),
+        );
+      } catch {
+        // ignore — empty state will show
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSignedIn]);
 
   function handleDownload(gen: Generation) {
     const link = document.createElement("a");
