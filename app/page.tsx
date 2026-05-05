@@ -10,6 +10,7 @@ type Generation = {
   id: string;
   prompt: string;
   aspectRatio: AspectRatio;
+  imageSize?: ImageSize;
   imageUrl: string;
 };
 
@@ -53,6 +54,7 @@ export default function Home() {
           id: crypto.randomUUID(),
           prompt: trimmed,
           aspectRatio,
+          imageSize,
           imageUrl: data.imageUrl,
         },
         ...prev,
@@ -63,6 +65,22 @@ export default function Home() {
     } finally {
       setIsGenerating(false);
     }
+  }
+
+  function handleDownload(gen: Generation) {
+    const link = document.createElement("a");
+    link.href = gen.imageUrl;
+    link.download = `studiobase-${gen.id}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  function handleEdit(gen: Generation) {
+    setPrompt(gen.prompt);
+    setAspectRatio(gen.aspectRatio);
+    if (gen.imageSize) setImageSize(gen.imageSize);
+    document.getElementById("prompt")?.focus();
   }
 
   return (
@@ -277,13 +295,61 @@ export default function Home() {
                         className="absolute inset-0 h-full w-full object-contain"
                       />
                     </div>
-                    <div className="space-y-1 p-3">
-                      <h3 className="truncate text-sm font-medium text-zinc-900">
-                        {gen.prompt}
-                      </h3>
-                      <p className="text-xs text-zinc-500">
-                        {gen.aspectRatio}
-                      </p>
+                    <div className="flex items-start justify-between gap-2 p-3">
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <h3 className="truncate text-sm font-medium text-zinc-900">
+                          {gen.prompt}
+                        </h3>
+                        <p className="text-xs text-zinc-500">
+                          {[gen.aspectRatio, gen.imageSize]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleEdit(gen)}
+                          className="grid size-8 place-items-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+                          aria-label="Edit prompt"
+                          title="Edit prompt"
+                        >
+                          <svg
+                            className="size-4"
+                            viewBox="0 0 20 20"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.75"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M14 3.5a1.77 1.77 0 0 1 2.5 2.5L7 15.5 3.5 16.5l1-3.5Z" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDownload(gen)}
+                          className="grid size-8 place-items-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+                          aria-label="Download image"
+                          title="Download image"
+                        >
+                          <svg
+                            className="size-4"
+                            viewBox="0 0 20 20"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.75"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M10 3v10" />
+                            <polyline points="6 9 10 13 14 9" />
+                            <path d="M4 16h12" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                   </article>
                 ))}
