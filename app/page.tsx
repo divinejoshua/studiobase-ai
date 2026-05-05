@@ -101,10 +101,10 @@ export default function Home() {
         prev.map((r) =>
           r.id === id
             ? {
-                ...r,
-                status: "error",
-                error: err instanceof Error ? err.message : "Upload failed",
-              }
+              ...r,
+              status: "error",
+              error: err instanceof Error ? err.message : "Upload failed",
+            }
             : r,
         ),
       );
@@ -397,11 +397,10 @@ export default function Home() {
                             type="button"
                             onClick={() => setAspectRatio(ratio)}
                             aria-pressed={aspectRatio === ratio}
-                            className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
-                              aspectRatio === ratio
+                            className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${aspectRatio === ratio
                                 ? "bg-white text-zinc-900 shadow-xs"
                                 : "text-zinc-500 hover:text-zinc-800"
-                            }`}
+                              }`}
                           >
                             {ratio}
                           </button>
@@ -554,8 +553,8 @@ export default function Home() {
                           type="button"
                           onClick={() => handleEdit(gen)}
                           className="grid size-8 place-items-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
-                          aria-label="Edit prompt"
-                          title="Edit prompt"
+                          aria-label="Edit image"
+                          title="Edit image"
                         >
                           <svg
                             className="size-4"
