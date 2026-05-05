@@ -422,10 +422,16 @@ export default function Home() {
                     Image
                   </button>
                   <button
-                    className="rounded-full px-3 py-1.5 text-sm font-medium text-zinc-500 transition hover:bg-zinc-100"
+                    className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-zinc-400 cursor-not-allowed"
                     type="button"
+                    disabled
+                    aria-disabled="true"
+                    title="Video generation is coming soon"
                   >
                     Video
+                    <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                      Soon
+                    </span>
                   </button>
                 </div>
 
