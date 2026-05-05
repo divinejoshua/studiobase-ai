@@ -24,7 +24,7 @@ const recentAssets = [
 export default function Home() {
   return (
     <main className="min-h-screen bg-white text-zinc-950">
-      <header className="fixed left-0 top-0 z-10 flex h-16 w-full items-center px-4 sm:px-6 md:px-10">
+      <header className="fixed left-0 top-0 z-10 flex h-16 w-full items-center border-b border-zinc-200 bg-white/80 px-4 backdrop-blur sm:px-6 md:px-10">
         <a
           className="flex items-center gap-2 font-semibold tracking-normal text-zinc-950"
           href="#"
