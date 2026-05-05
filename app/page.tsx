@@ -35,7 +35,22 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [generations, setGenerations] = useState<Generation[]>([]);
   const [references, setReferences] = useState<Reference[]>([]);
+  const [zoomed, setZoomed] = useState<Generation | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!zoomed) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setZoomed(null);
+    }
+    document.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [zoomed]);
 
   useEffect(() => {
     return () => {
@@ -464,14 +479,36 @@ export default function Home() {
                     className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-xs"
                     key={gen.id}
                   >
-                    <div className="relative aspect-square w-full overflow-hidden bg-zinc-100">
+                    <button
+                      type="button"
+                      onClick={() => setZoomed(gen)}
+                      className="group relative block aspect-square w-full overflow-hidden bg-zinc-100"
+                      aria-label="Zoom image"
+                    >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={gen.imageUrl}
                         alt={gen.prompt}
                         className="absolute inset-0 h-full w-full object-contain"
                       />
-                    </div>
+                      <span className="absolute right-2 top-2 grid size-8 place-items-center rounded-full bg-zinc-900/70 text-white opacity-0 transition group-hover:opacity-100">
+                        <svg
+                          className="size-4"
+                          viewBox="0 0 20 20"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.75"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <circle cx="9" cy="9" r="5.5" />
+                          <line x1="9" y1="6.5" x2="9" y2="11.5" />
+                          <line x1="6.5" y1="9" x2="11.5" y2="9" />
+                          <line x1="13" y1="13" x2="16.5" y2="16.5" />
+                        </svg>
+                      </span>
+                    </button>
                     <div className="flex items-start justify-between gap-2 p-3">
                       <div className="min-w-0 flex-1 space-y-1">
                         <h3 className="truncate text-sm font-medium text-zinc-900">
@@ -535,6 +572,43 @@ export default function Home() {
           </section>
         </div>
       </section>
+
+      {zoomed && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-4 sm:p-8"
+          onClick={() => setZoomed(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Zoomed image"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={zoomed.imageUrl}
+            alt={zoomed.prompt}
+            className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            type="button"
+            onClick={() => setZoomed(null)}
+            className="absolute right-4 top-4 grid size-10 place-items-center rounded-full bg-white/15 text-white backdrop-blur transition hover:bg-white/25"
+            aria-label="Close"
+          >
+            <svg
+              className="size-5"
+              viewBox="0 0 20 20"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <line x1="5" y1="5" x2="15" y2="15" />
+              <line x1="15" y1="5" x2="5" y2="15" />
+            </svg>
+          </button>
+        </div>
+      )}
     </main>
   );
 }
