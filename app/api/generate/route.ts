@@ -1,7 +1,14 @@
+import { auth } from "@clerk/nextjs/server";
+
 const ALLOWED_RATIOS = new Set(["1:1", "16:9", "9:16"]);
 const ALLOWED_SIZES = new Set(["1K", "2K", "4K"]);
 
 export async function POST(request: Request) {
+  const { userId } = await auth();
+  if (!userId) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
     return Response.json(

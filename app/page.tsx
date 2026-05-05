@@ -3,6 +3,12 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import {
+  SignInButton,
+  UserButton,
+  useClerk,
+  useUser,
+} from "@clerk/nextjs";
+import {
   ALLOWED_REFERENCE_MIME_TYPES,
   MAX_REFERENCE_IMAGES,
 } from "@/lib/constants";
@@ -45,7 +51,10 @@ export default function Home() {
   const [generations, setGenerations] = useState<Generation[]>([]);
   const [references, setReferences] = useState<Reference[]>([]);
   const [zoomed, setZoomed] = useState<Generation | null>(null);
+  const [pendingSubmit, setPendingSubmit] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { isSignedIn, isLoaded: userLoaded } = useUser();
+  const { openSignIn } = useClerk();
 
   useEffect(() => {
     if (!zoomed) return;
@@ -67,6 +76,70 @@ export default function Home() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const [draftRestored, setDraftRestored] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("studiobase-draft");
+      if (raw) {
+        const draft = JSON.parse(raw);
+        if (typeof draft.prompt === "string") setPrompt(draft.prompt);
+        if (
+          draft.aspectRatio &&
+          ASPECT_RATIOS.includes(draft.aspectRatio as AspectRatio)
+        ) {
+          setAspectRatio(draft.aspectRatio as AspectRatio);
+        }
+        if (
+          draft.imageSize &&
+          IMAGE_SIZES.includes(draft.imageSize as ImageSize)
+        ) {
+          setImageSize(draft.imageSize as ImageSize);
+        }
+        if (Array.isArray(draft.references)) {
+          setReferences(
+            draft.references
+              .filter(
+                (r: { viewUrl?: string }) =>
+                  typeof r.viewUrl === "string" && r.viewUrl.length > 0,
+              )
+              .map((r: { id: string; fileName: string; viewUrl: string }) => ({
+                id: r.id,
+                fileName: r.fileName,
+                localUrl: r.viewUrl,
+                status: "ready" as const,
+                viewUrl: r.viewUrl,
+              })),
+          );
+        }
+      }
+    } catch {
+      // ignore corrupt draft
+    }
+    setDraftRestored(true);
+  }, []);
+
+  useEffect(() => {
+    if (!draftRestored) return;
+    const draft = {
+      prompt,
+      aspectRatio,
+      imageSize,
+      references: references
+        .filter((r) => r.status === "ready" && r.viewUrl)
+        .map((r) => ({
+          id: r.id,
+          fileName: r.fileName,
+          viewUrl: r.viewUrl,
+        })),
+    };
+    try {
+      localStorage.setItem("studiobase-draft", JSON.stringify(draft));
+    } catch {
+      // ignore quota errors
+    }
+  }, [prompt, aspectRatio, imageSize, references, draftRestored]);
 
   async function uploadReference(file: File): Promise<void> {
     const id = crypto.randomUUID();
@@ -141,8 +214,7 @@ export default function Home() {
     });
   }
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function runGenerate() {
     const trimmed = prompt.trim();
     if (!trimmed || isGenerating) return;
     if (references.some((r) => r.status === "uploading")) return;
@@ -189,6 +261,25 @@ export default function Home() {
     }
   }
 
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!userLoaded) return;
+    if (!isSignedIn) {
+      setPendingSubmit(true);
+      openSignIn();
+      return;
+    }
+    void runGenerate();
+  }
+
+  useEffect(() => {
+    if (isSignedIn && pendingSubmit) {
+      setPendingSubmit(false);
+      void runGenerate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSignedIn, pendingSubmit]);
+
   function handleDownload(gen: Generation) {
     const link = document.createElement("a");
     link.href = gen.imageUrl;
@@ -223,7 +314,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-white text-zinc-950">
-      <header className="fixed left-0 top-0 z-10 flex h-16 w-full items-center border-b border-zinc-200 bg-white/80 px-4 backdrop-blur sm:px-6 md:px-10">
+      <header className="fixed left-0 top-0 z-10 flex h-16 w-full items-center justify-between border-b border-zinc-200 bg-white/80 px-4 backdrop-blur sm:px-6 md:px-10">
         <a
           className="flex items-center gap-2 font-semibold tracking-normal text-zinc-950"
           href="#"
@@ -238,6 +329,16 @@ export default function Home() {
           />
           Studiobase
         </a>
+        <div className="flex items-center gap-2">
+          {userLoaded && !isSignedIn && (
+            <SignInButton mode="modal">
+              <button className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-zinc-700">
+                Sign in
+              </button>
+            </SignInButton>
+          )}
+          {userLoaded && isSignedIn && <UserButton />}
+        </div>
       </header>
 
       <section className="px-4 py-10 sm:px-6 md:px-10">
@@ -290,7 +391,7 @@ export default function Home() {
                   <textarea
                     className="min-h-12 w-full resize-none bg-transparent text-base leading-6 text-zinc-900 outline-none placeholder:text-zinc-400"
                     id="prompt"
-                    placeholder="Describe an image or video to create"
+                    placeholder="Describe an image to create"
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     disabled={isGenerating}
