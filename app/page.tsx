@@ -604,7 +604,7 @@ export default function Home() {
 
       {zoomed && (
         <div
-          className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-4 sm:p-8"
+          className="fixed inset-0 z-50 grid place-items-center bg-black/80"
           onClick={() => setZoomed(null)}
           role="dialog"
           aria-modal="true"
@@ -614,7 +614,7 @@ export default function Home() {
           <img
             src={zoomed.imageUrl}
             alt={zoomed.prompt}
-            className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+            className="h-dvh max-w-full object-contain"
             onClick={(e) => e.stopPropagation()}
           />
           <button
