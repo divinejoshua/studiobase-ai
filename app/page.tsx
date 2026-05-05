@@ -437,7 +437,7 @@ export default function Home() {
                     Prompt
                   </label>
                   <textarea
-                    className="min-h-12 w-full resize-none bg-transparent text-base leading-6 text-zinc-900 outline-none placeholder:text-zinc-400"
+                    className="min-h-12 w-full resize-none bg-transparent text-sm leading-5 text-zinc-900 outline-none placeholder:text-zinc-400"
                     id="prompt"
                     placeholder="Describe an image to create"
                     value={prompt}
