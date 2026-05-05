@@ -1,0 +1,74 @@
+const ALLOWED_RATIOS = new Set(["1:1", "16:9", "9:16"]);
+const ALLOWED_SIZES = new Set(["1K", "2K", "4K"]);
+
+export async function POST(request: Request) {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    return Response.json(
+      { error: "OPENROUTER_API_KEY is not configured" },
+      { status: 500 },
+    );
+  }
+
+  let body: { prompt?: string; aspectRatio?: string; imageSize?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const prompt = body.prompt?.trim();
+  const aspectRatio = body.aspectRatio ?? "1:1";
+  const imageSize = body.imageSize ?? "1K";
+
+  if (!prompt) {
+    return Response.json({ error: "Prompt is required" }, { status: 400 });
+  }
+  if (!ALLOWED_RATIOS.has(aspectRatio)) {
+    return Response.json({ error: "Unsupported aspect ratio" }, { status: 400 });
+  }
+  if (!ALLOWED_SIZES.has(imageSize)) {
+    return Response.json({ error: "Unsupported image size" }, { status: 400 });
+  }
+
+  const upstream = await fetch(
+    "https://openrouter.ai/api/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-3.1-flash-image-preview",
+        messages: [{ role: "user", content: prompt }],
+        modalities: ["image", "text"],
+        image_config: {
+          aspect_ratio: aspectRatio,
+          image_size: imageSize,
+        },
+      }),
+    },
+  );
+
+  if (!upstream.ok) {
+    const errText = await upstream.text();
+    return Response.json(
+      { error: `OpenRouter error: ${errText}` },
+      { status: upstream.status },
+    );
+  }
+
+  const data = await upstream.json();
+  const imageUrl: string | undefined =
+    data?.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+
+  if (!imageUrl) {
+    return Response.json(
+      { error: "No image returned from model" },
+      { status: 502 },
+    );
+  }
+
+  return Response.json({ imageUrl });
+}
