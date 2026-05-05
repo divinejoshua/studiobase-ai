@@ -2,7 +2,10 @@
 
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
-import { ALLOWED_REFERENCE_MIME_TYPES } from "@/lib/constants";
+import {
+  ALLOWED_REFERENCE_MIME_TYPES,
+  MAX_REFERENCE_IMAGES,
+} from "@/lib/constants";
 
 type AspectRatio = "1:1" | "16:9" | "9:16";
 type ImageSize = "1K" | "2K" | "4K";
@@ -111,11 +114,16 @@ export default function Home() {
   function handleFilesSelected(event: React.ChangeEvent<HTMLInputElement>) {
     const files = event.target.files;
     if (!files) return;
-    Array.from(files).forEach((file) => {
-      if (ALLOWED_REFERENCE_MIME_TYPES.includes(file.type)) {
-        void uploadReference(file);
-      }
-    });
+    const eligible = Array.from(files).filter((file) =>
+      ALLOWED_REFERENCE_MIME_TYPES.includes(file.type),
+    );
+    const remaining = MAX_REFERENCE_IMAGES - references.length;
+    eligible
+      .slice(0, Math.max(remaining, 0))
+      .forEach((file) => void uploadReference(file));
+    if (eligible.length > remaining) {
+      setError(`You can attach up to ${MAX_REFERENCE_IMAGES} reference images.`);
+    }
     event.target.value = "";
   }
 
@@ -185,6 +193,10 @@ export default function Home() {
   }
 
   async function handleEdit(gen: Generation) {
+    if (references.length >= MAX_REFERENCE_IMAGES) {
+      setError(`You can attach up to ${MAX_REFERENCE_IMAGES} reference images.`);
+      return;
+    }
     setAspectRatio(gen.aspectRatio);
     if (gen.imageSize) setImageSize(gen.imageSize);
     document.getElementById("prompt")?.focus();
@@ -360,11 +372,16 @@ export default function Home() {
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <button
-                        className="grid size-8 place-items-center rounded-full text-xl leading-none text-zinc-500 transition hover:bg-zinc-100"
+                        className="grid size-8 place-items-center rounded-full text-xl leading-none text-zinc-500 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
                         type="button"
                         aria-label="Add reference image"
-                        title="Add reference image"
+                        title={
+                          references.length >= MAX_REFERENCE_IMAGES
+                            ? `Limit of ${MAX_REFERENCE_IMAGES} reference images reached`
+                            : "Add reference image"
+                        }
                         onClick={() => fileInputRef.current?.click()}
+                        disabled={references.length >= MAX_REFERENCE_IMAGES}
                       >
                         +
                       </button>
