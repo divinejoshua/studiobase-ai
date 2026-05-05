@@ -1,7 +1,5 @@
 import Image from "next/image";
 
-const quickActions = ["Image prompt", "Video concept", "Product shot"];
-
 const recentAssets = [
   {
     title: "Chrome speaker study",
@@ -100,17 +98,6 @@ export default function Home() {
                 </div>
               </form>
 
-              <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                {quickActions.map((action) => (
-                  <button
-                    className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
-                    type="button"
-                    key={action}
-                  >
-                    {action}
-                  </button>
-                ))}
-              </div>
             </div>
           </div>
 
