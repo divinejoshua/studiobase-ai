@@ -1,10 +1,20 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ALLOWED_REFERENCE_MIME_TYPES } from "@/lib/constants";
 
 type AspectRatio = "1:1" | "16:9" | "9:16";
 type ImageSize = "1K" | "2K" | "4K";
+
+type Reference = {
+  id: string;
+  fileName: string;
+  localUrl: string;
+  status: "uploading" | "ready" | "error";
+  viewUrl?: string;
+  error?: string;
+};
 
 type Generation = {
   id: string;
@@ -24,16 +34,98 @@ export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generations, setGenerations] = useState<Generation[]>([]);
+  const [references, setReferences] = useState<Reference[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    return () => {
+      references.forEach((ref) => URL.revokeObjectURL(ref.localUrl));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function uploadReference(file: File): Promise<void> {
+    const id = crypto.randomUUID();
+    const localUrl = URL.createObjectURL(file);
+
+    setReferences((prev) => [
+      ...prev,
+      { id, fileName: file.name, localUrl, status: "uploading" },
+    ]);
+
+    try {
+      const presignRes = await fetch("/api/upload-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contentType: file.type }),
+      });
+      const presign = await presignRes.json();
+      if (!presignRes.ok) {
+        throw new Error(presign?.error ?? "Failed to get upload URL");
+      }
+
+      const putRes = await fetch(presign.uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!putRes.ok) {
+        throw new Error(`Upload failed (${putRes.status})`);
+      }
+
+      setReferences((prev) =>
+        prev.map((r) =>
+          r.id === id ? { ...r, status: "ready", viewUrl: presign.viewUrl } : r,
+        ),
+      );
+    } catch (err) {
+      setReferences((prev) =>
+        prev.map((r) =>
+          r.id === id
+            ? {
+                ...r,
+                status: "error",
+                error: err instanceof Error ? err.message : "Upload failed",
+              }
+            : r,
+        ),
+      );
+    }
+  }
+
+  function handleFilesSelected(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = event.target.files;
+    if (!files) return;
+    Array.from(files).forEach((file) => {
+      if (ALLOWED_REFERENCE_MIME_TYPES.includes(file.type)) {
+        void uploadReference(file);
+      }
+    });
+    event.target.value = "";
+  }
+
+  function removeReference(id: string) {
+    setReferences((prev) => {
+      const target = prev.find((r) => r.id === id);
+      if (target) URL.revokeObjectURL(target.localUrl);
+      return prev.filter((r) => r.id !== id);
+    });
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmed = prompt.trim();
     if (!trimmed || isGenerating) return;
+    if (references.some((r) => r.status === "uploading")) return;
 
     setIsGenerating(true);
     setError(null);
 
     try {
+      const referenceUrls = references
+        .filter((r) => r.status === "ready" && r.viewUrl)
+        .map((r) => r.viewUrl as string);
+
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -41,6 +133,7 @@ export default function Home() {
           prompt: trimmed,
           aspectRatio,
           imageSize,
+          referenceUrls,
         }),
       });
 
@@ -158,13 +251,93 @@ export default function Home() {
                     disabled={isGenerating}
                   />
 
+                  {references.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {references.map((ref) => (
+                        <div
+                          key={ref.id}
+                          className="group relative size-16 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={ref.localUrl}
+                            alt={ref.fileName}
+                            className="h-full w-full object-cover"
+                          />
+                          {ref.status === "uploading" && (
+                            <div className="absolute inset-0 grid place-items-center bg-white/60">
+                              <svg
+                                className="size-5 animate-spin text-zinc-700"
+                                viewBox="0 0 20 20"
+                                fill="none"
+                                aria-hidden="true"
+                              >
+                                <circle
+                                  cx="10"
+                                  cy="10"
+                                  r="7"
+                                  stroke="currentColor"
+                                  strokeOpacity="0.25"
+                                  strokeWidth="2.5"
+                                />
+                                <path
+                                  d="M10 3a7 7 0 0 1 7 7"
+                                  stroke="currentColor"
+                                  strokeWidth="2.5"
+                                  strokeLinecap="round"
+                                />
+                              </svg>
+                            </div>
+                          )}
+                          {ref.status === "error" && (
+                            <div
+                              className="absolute inset-0 grid place-items-center bg-red-500/70 text-[10px] font-medium text-white"
+                              title={ref.error}
+                            >
+                              Failed
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeReference(ref.id)}
+                            className="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-zinc-900/70 text-white opacity-0 transition group-hover:opacity-100"
+                            aria-label={`Remove ${ref.fileName}`}
+                          >
+                            <svg
+                              className="size-3"
+                              viewBox="0 0 20 20"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.5"
+                              strokeLinecap="round"
+                              aria-hidden="true"
+                            >
+                              <line x1="5" y1="5" x2="15" y2="15" />
+                              <line x1="15" y1="5" x2="5" y2="15" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept={ALLOWED_REFERENCE_MIME_TYPES.join(",")}
+                    multiple
+                    className="hidden"
+                    onChange={handleFilesSelected}
+                  />
+
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         className="grid size-8 place-items-center rounded-full text-xl leading-none text-zinc-500 transition hover:bg-zinc-100"
                         type="button"
-                        aria-label="Add attachment"
-                        title="Add attachment"
+                        aria-label="Add reference image"
+                        title="Add reference image"
+                        onClick={() => fileInputRef.current?.click()}
                       >
                         +
                       </button>
@@ -226,7 +399,11 @@ export default function Home() {
                       type="submit"
                       aria-label="Generate"
                       title="Generate"
-                      disabled={isGenerating || prompt.trim().length === 0}
+                      disabled={
+                        isGenerating ||
+                        prompt.trim().length === 0 ||
+                        references.some((r) => r.status === "uploading")
+                      }
                     >
                       {isGenerating ? (
                         <svg

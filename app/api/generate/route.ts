@@ -10,7 +10,12 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: { prompt?: string; aspectRatio?: string; imageSize?: string };
+  let body: {
+    prompt?: string;
+    aspectRatio?: string;
+    imageSize?: string;
+    referenceUrls?: unknown;
+  };
   try {
     body = await request.json();
   } catch {
@@ -20,6 +25,11 @@ export async function POST(request: Request) {
   const prompt = body.prompt?.trim();
   const aspectRatio = body.aspectRatio ?? "1:1";
   const imageSize = body.imageSize ?? "1K";
+  const referenceUrls = Array.isArray(body.referenceUrls)
+    ? body.referenceUrls.filter(
+        (u): u is string => typeof u === "string" && u.length > 0,
+      )
+    : [];
 
   if (!prompt) {
     return Response.json({ error: "Prompt is required" }, { status: 400 });
@@ -31,6 +41,17 @@ export async function POST(request: Request) {
     return Response.json({ error: "Unsupported image size" }, { status: 400 });
   }
 
+  const userContent =
+    referenceUrls.length === 0
+      ? prompt
+      : [
+          { type: "text", text: prompt },
+          ...referenceUrls.map((url) => ({
+            type: "image_url",
+            image_url: { url },
+          })),
+        ];
+
   const upstream = await fetch(
     "https://openrouter.ai/api/v1/chat/completions",
     {
@@ -41,7 +62,7 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify({
         model: "google/gemini-3.1-flash-image-preview",
-        messages: [{ role: "user", content: prompt }],
+        messages: [{ role: "user", content: userContent }],
         modalities: ["image", "text"],
         image_config: {
           aspect_ratio: aspectRatio,
