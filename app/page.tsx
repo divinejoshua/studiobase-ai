@@ -184,11 +184,23 @@ export default function Home() {
     document.body.removeChild(link);
   }
 
-  function handleEdit(gen: Generation) {
-    setPrompt(gen.prompt);
+  async function handleEdit(gen: Generation) {
     setAspectRatio(gen.aspectRatio);
     if (gen.imageSize) setImageSize(gen.imageSize);
     document.getElementById("prompt")?.focus();
+
+    try {
+      const res = await fetch(gen.imageUrl);
+      const blob = await res.blob();
+      const file = new File([blob], `studiobase-${gen.id}.png`, {
+        type: blob.type || "image/png",
+      });
+      await uploadReference(file);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not load image to edit",
+      );
+    }
   }
 
   return (
