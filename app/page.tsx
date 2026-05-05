@@ -346,7 +346,7 @@ export default function Home() {
           <div className="flex justify-center pt-16 md:pt-24">
             <div className="w-full max-w-3xl">
               <h1 className="text-center text-4xl font-semibold tracking-normal text-zinc-950 sm:text-4xl">
-                Create studio quality visuals
+                Generate Quality Product Ads in Seconds
               </h1>
               <p className="mx-auto mt-4 max-w-2xl text-center text-base leading-7 text-zinc-500">
                 Generate images and videos for products, campaigns, and social
@@ -622,12 +622,30 @@ export default function Home() {
               </a>
             </div>
 
-            {generations.length === 0 ? (
+            {generations.length === 0 && !isGenerating ? (
               <div className="rounded-lg border border-dashed border-zinc-200 px-4 py-12 text-center text-sm text-zinc-500">
                 Your generated images will appear here.
               </div>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {isGenerating && (
+                  <article
+                    className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-xs"
+                    aria-busy="true"
+                    aria-live="polite"
+                  >
+                    <div className="relative aspect-square w-full overflow-hidden bg-zinc-100">
+                      <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-zinc-100 via-zinc-200 to-zinc-100" />
+                      <span className="sr-only">Generating image…</span>
+                    </div>
+                    <div className="flex items-start justify-between gap-2 p-3">
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <div className="h-3.5 w-3/4 animate-pulse rounded bg-zinc-200" />
+                        <div className="h-3 w-1/3 animate-pulse rounded bg-zinc-200" />
+                      </div>
+                    </div>
+                  </article>
+                )}
                 {generations.map((gen) => (
                   <article
                     className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-xs"
