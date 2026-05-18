@@ -3,12 +3,6 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import {
-  SignInButton,
-  UserButton,
-  useClerk,
-  useUser,
-} from "@clerk/nextjs";
-import {
   ALLOWED_REFERENCE_MIME_TYPES,
   MAX_REFERENCE_IMAGES,
 } from "@/lib/constants";
@@ -34,6 +28,8 @@ type Generation = {
   aspectRatio: AspectRatio;
   imageSize?: ImageSize;
   imageUrl: string;
+  status?: "pending" | "ready" | "error";
+  error?: string;
 };
 
 const ASPECT_RATIOS: AspectRatio[] = ["1:1", "16:9", "9:16"];
@@ -46,6 +42,7 @@ const aspectIconBox: Record<AspectRatio, { w: number; h: number }> = {
 };
 
 export default function Home() {
+  const [mediaType, setMediaType] = useState<MediaType>("image");
   const [prompt, setPrompt] = useState("");
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1");
   const [imageSize, setImageSize] = useState<ImageSize>("1K");
@@ -54,10 +51,58 @@ export default function Home() {
   const [generations, setGenerations] = useState<Generation[]>([]);
   const [references, setReferences] = useState<Reference[]>([]);
   const [zoomed, setZoomed] = useState<Generation | null>(null);
-  const [pendingSubmit, setPendingSubmit] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { isSignedIn, isLoaded: userLoaded } = useUser();
-  const { openSignIn } = useClerk();
+
+  // Poll for pending video generations
+  useEffect(() => {
+    const pendingGens = generations.filter((g) => g.status === "pending");
+    if (pendingGens.length === 0) return;
+
+    const interval = setInterval(async () => {
+      for (const gen of pendingGens) {
+        try {
+          const res = await fetch(`/api/poll-video?jobId=${gen.id}`);
+          const data = await res.json();
+          if (res.ok) {
+            if (data.status === "ready") {
+              setGenerations((prev) =>
+                prev.map((g) =>
+                  g.id === gen.id
+                    ? { ...g, status: "ready", imageUrl: data.imageUrl }
+                    : g,
+                ),
+              );
+            } else if (data.status === "error") {
+              setGenerations((prev) =>
+                prev.map((g) =>
+                  g.id === gen.id
+                    ? { ...g, status: "error", error: data.error }
+                    : g,
+                ),
+              );
+            }
+          }
+        } catch (err) {
+          console.error("Polling error for job", gen.id, err);
+        }
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [generations]);
+
+  // Prevent default window drag-and-drop behavior to stop accidental navigation/tab open
+  useEffect(() => {
+    function preventDefault(e: DragEvent) {
+      e.preventDefault();
+    }
+    window.addEventListener("dragover", preventDefault);
+    window.addEventListener("drop", preventDefault);
+    return () => {
+      window.removeEventListener("dragover", preventDefault);
+      window.removeEventListener("drop", preventDefault);
+    };
+  }, []);
 
   useEffect(() => {
     if (!zoomed) return;
@@ -89,6 +134,12 @@ export default function Home() {
         const draft = JSON.parse(raw);
         if (typeof draft.prompt === "string") setPrompt(draft.prompt);
         if (
+          draft.mediaType &&
+          ["image", "video", "audio"].includes(draft.mediaType)
+        ) {
+          setMediaType(draft.mediaType as MediaType);
+        }
+        if (
           draft.aspectRatio &&
           ASPECT_RATIOS.includes(draft.aspectRatio as AspectRatio)
         ) {
@@ -116,6 +167,9 @@ export default function Home() {
               })),
           );
         }
+        if (Array.isArray(draft.generations)) {
+          setGenerations(draft.generations);
+        }
       }
     } catch {
       // ignore corrupt draft
@@ -129,6 +183,7 @@ export default function Home() {
       prompt,
       aspectRatio,
       imageSize,
+      mediaType,
       references: references
         .filter((r) => r.status === "ready" && r.viewUrl)
         .map((r) => ({
@@ -136,13 +191,14 @@ export default function Home() {
           fileName: r.fileName,
           viewUrl: r.viewUrl,
         })),
+      generations,
     };
     try {
       localStorage.setItem("studiobase-draft", JSON.stringify(draft));
     } catch {
       // ignore quota errors
     }
-  }, [prompt, aspectRatio, imageSize, references, draftRestored]);
+  }, [prompt, aspectRatio, imageSize, mediaType, references, generations, draftRestored]);
 
   async function uploadReference(file: File): Promise<void> {
     const id = crypto.randomUUID();
@@ -154,23 +210,16 @@ export default function Home() {
     ]);
 
     try {
-      const presignRes = await fetch("/api/upload-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contentType: file.type }),
-      });
-      const presign = await presignRes.json();
-      if (!presignRes.ok) {
-        throw new Error(presign?.error ?? "Failed to get upload URL");
-      }
+      const formData = new FormData();
+      formData.append("file", file);
 
-      const putRes = await fetch(presign.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
       });
-      if (!putRes.ok) {
-        throw new Error(`Upload failed (${putRes.status})`);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error ?? "Failed to upload file");
       }
 
       setReferences((prev) =>
@@ -179,8 +228,8 @@ export default function Home() {
             ? {
                 ...r,
                 status: "ready",
-                viewUrl: presign.viewUrl,
-                key: presign.key,
+                viewUrl: data.url,
+                key: data.url, // reusing url as key
               }
             : r,
         ),
@@ -200,9 +249,7 @@ export default function Home() {
     }
   }
 
-  function handleFilesSelected(event: React.ChangeEvent<HTMLInputElement>) {
-    const files = event.target.files;
-    if (!files) return;
+  function handleFiles(files: FileList | File[]) {
     const eligible = Array.from(files).filter((file) =>
       ALLOWED_REFERENCE_MIME_TYPES.includes(file.type),
     );
@@ -213,7 +260,43 @@ export default function Home() {
     if (eligible.length > remaining) {
       setError(`You can attach up to ${MAX_REFERENCE_IMAGES} reference images.`);
     }
+  }
+
+  function handleFilesSelected(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = event.target.files;
+    if (files) handleFiles(files);
     event.target.value = "";
+  }
+
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  function handleDragEnter(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      handleFiles(files);
+    }
   }
 
   function removeReference(id: string) {
@@ -245,22 +328,24 @@ export default function Home() {
           aspectRatio,
           imageSize,
           referenceKeys,
+          mediaType,
         }),
       });
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error ?? "Failed to generate image");
+        throw new Error(data?.error ?? `Failed to generate ${mediaType}`);
       }
 
       setGenerations((prev) => [
         {
           id: data.generation.id,
-          mediaType: (data.generation.mediaType as MediaType) ?? "image",
+          mediaType: (data.generation.mediaType as MediaType) ?? mediaType,
           prompt: data.generation.prompt,
           aspectRatio: data.generation.aspectRatio as AspectRatio,
           imageSize: data.generation.imageSize as ImageSize,
-          imageUrl: data.generation.imageUrl,
+          imageUrl: data.generation.imageUrl || "",
+          status: data.generation.status ?? "ready",
         },
         ...prev,
       ]);
@@ -274,64 +359,14 @@ export default function Home() {
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!userLoaded) return;
-    if (!isSignedIn) {
-      setPendingSubmit(true);
-      openSignIn();
-      return;
-    }
     void runGenerate();
   }
-
-  useEffect(() => {
-    if (isSignedIn && pendingSubmit) {
-      setPendingSubmit(false);
-      void runGenerate();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSignedIn, pendingSubmit]);
-
-  useEffect(() => {
-    if (!isSignedIn) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/generations");
-        if (!res.ok) return;
-        const data = await res.json();
-        if (cancelled || !Array.isArray(data.generations)) return;
-        setGenerations(
-          data.generations.map(
-            (g: {
-              id: string;
-              mediaType?: string;
-              prompt: string;
-              aspectRatio: string;
-              imageSize: string;
-              imageUrl: string;
-            }) => ({
-              id: g.id,
-              mediaType: (g.mediaType as MediaType) ?? "image",
-              prompt: g.prompt,
-              aspectRatio: g.aspectRatio as AspectRatio,
-              imageSize: g.imageSize as ImageSize,
-              imageUrl: g.imageUrl,
-            }),
-          ),
-        );
-      } catch {
-        // ignore — empty state will show
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isSignedIn]);
 
   function handleDownload(gen: Generation) {
     const link = document.createElement("a");
     link.href = gen.imageUrl;
-    link.download = `studiobase-${gen.id}.png`;
+    const ext = gen.imageUrl.split(".").pop() || (gen.mediaType === "video" ? "mp4" : "png");
+    link.download = `studiobase-${gen.id}.${ext}`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -346,56 +381,19 @@ export default function Home() {
     if (gen.imageSize) setImageSize(gen.imageSize);
     document.getElementById("prompt")?.focus();
 
+    const ext = gen.imageUrl.split(".").pop() || "png";
     const tempId = crypto.randomUUID();
     setReferences((prev) => [
       ...prev,
       {
         id: tempId,
-        fileName: `studiobase-${gen.id}.png`,
+        fileName: `studiobase-${gen.id}.${ext}`,
         localUrl: gen.imageUrl,
-        status: "uploading",
+        viewUrl: gen.imageUrl,
+        key: gen.imageUrl,
+        status: "ready",
       },
     ]);
-
-    try {
-      const res = await fetch("/api/edit-generation", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ generationId: gen.id }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data?.error ?? "Could not load image to edit");
-      }
-      setReferences((prev) =>
-        prev.map((r) =>
-          r.id === tempId
-            ? {
-                ...r,
-                status: "ready",
-                localUrl: data.viewUrl,
-                viewUrl: data.viewUrl,
-                key: data.key,
-              }
-            : r,
-        ),
-      );
-    } catch (err) {
-      setReferences((prev) =>
-        prev.map((r) =>
-          r.id === tempId
-            ? {
-                ...r,
-                status: "error",
-                error:
-                  err instanceof Error
-                    ? err.message
-                    : "Could not load image to edit",
-              }
-            : r,
-        ),
-      );
-    }
   }
 
   return (
@@ -415,16 +413,6 @@ export default function Home() {
           />
           Studiobase
         </a>
-        <div className="flex items-center gap-2">
-          {userLoaded && !isSignedIn && (
-            <SignInButton mode="modal">
-              <button className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-zinc-700">
-                Sign in
-              </button>
-            </SignInButton>
-          )}
-          {userLoaded && isSignedIn && <UserButton />}
-        </div>
       </header>
 
       <section className="px-4 py-10 sm:px-6 md:px-10">
@@ -442,40 +430,68 @@ export default function Home() {
               <div className="mt-10">
                 <div className="mb-2 flex items-center gap-2 pl-2">
                   <button
-                    className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-200"
+                    onClick={() => setMediaType("image")}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition ${
+                      mediaType === "image"
+                        ? "bg-zinc-100 text-zinc-700"
+                        : "text-zinc-400 hover:text-zinc-600"
+                    }`}
                     type="button"
                   >
-                    <svg
-                      className="size-3.5"
-                      viewBox="0 0 20 20"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <polyline points="4 10 8 14 16 6" />
-                    </svg>
+                    {mediaType === "image" && (
+                      <svg
+                        className="size-3.5"
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <polyline points="4 10 8 14 16 6" />
+                      </svg>
+                    )}
                     Image
                   </button>
                   <button
-                    className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-zinc-400 cursor-not-allowed"
+                    onClick={() => setMediaType("video")}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition ${
+                      mediaType === "video"
+                        ? "bg-zinc-100 text-zinc-700"
+                        : "text-zinc-400 hover:text-zinc-600"
+                    }`}
                     type="button"
-                    disabled
-                    aria-disabled="true"
-                    title="Video generation is coming soon"
                   >
+                    {mediaType === "video" && (
+                      <svg
+                        className="size-3.5"
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <polyline points="4 10 8 14 16 6" />
+                      </svg>
+                    )}
                     Video
-                    <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
-                      Soon
-                    </span>
                   </button>
                 </div>
 
                 <form
-                  className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-xs"
+                  className={`rounded-2xl border p-4 shadow-xs transition-all duration-200 ${
+                    isDragOver
+                      ? "border-zinc-400 bg-zinc-50/80 ring-2 ring-zinc-500/10 scale-[1.01]"
+                      : "border-zinc-200 bg-white"
+                  }`}
                   onSubmit={handleSubmit}
+                  onDragEnter={handleDragEnter}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
                 >
                   <label className="sr-only" htmlFor="prompt">
                     Prompt
@@ -483,7 +499,7 @@ export default function Home() {
                   <textarea
                     className="min-h-12 w-full resize-none bg-transparent text-sm leading-5 text-zinc-900 outline-none placeholder:text-zinc-400"
                     id="prompt"
-                    placeholder="Describe an image to create"
+                    placeholder={mediaType === "video" ? "Describe a video to create" : "Describe an image to create"}
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     disabled={isGenerating}
@@ -491,7 +507,7 @@ export default function Home() {
 
                   {references.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {references.map((ref) => (
+                      {references.map((ref, idx) => (
                         <div
                           key={ref.id}
                           className="group relative size-16 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100"
@@ -502,6 +518,11 @@ export default function Home() {
                             alt={ref.fileName}
                             className="h-full w-full object-cover"
                           />
+                          {mediaType === "video" && idx === 0 && ref.status === "ready" && (
+                            <span className="absolute bottom-0 left-0 right-0 bg-zinc-950/70 text-[9px] font-semibold text-center text-white py-0.5 uppercase tracking-wide">
+                              Product
+                            </span>
+                          )}
                           {ref.status === "uploading" && (
                             <div className="absolute inset-0 grid place-items-center bg-white/60">
                               <svg
@@ -577,6 +598,8 @@ export default function Home() {
                         title={
                           references.length >= MAX_REFERENCE_IMAGES
                             ? `Limit of ${MAX_REFERENCE_IMAGES} reference images reached`
+                            : mediaType === "video"
+                            ? "Add product starting image (first frame)"
                             : "Add reference image"
                         }
                         onClick={() => fileInputRef.current?.click()}
@@ -625,34 +648,36 @@ export default function Home() {
                         })}
                       </div>
 
-                      <div className="relative">
-                        <select
-                          className="appearance-none rounded-full bg-zinc-100 py-1.5 pl-3 pr-7 text-xs font-medium text-zinc-700 transition hover:bg-zinc-200 focus:outline-none"
-                          aria-label="Resolution"
-                          value={imageSize}
-                          onChange={(e) =>
-                            setImageSize(e.target.value as ImageSize)
-                          }
-                        >
-                          {IMAGE_SIZES.map((size) => (
-                            <option key={size} value={size}>
-                              {size}
-                            </option>
-                          ))}
-                        </select>
-                        <svg
-                          className="pointer-events-none absolute right-2 top-1/2 size-3 -translate-y-1/2 text-zinc-500"
-                          viewBox="0 0 20 20"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden="true"
-                        >
-                          <polyline points="5 8 10 13 15 8" />
-                        </svg>
-                      </div>
+                      {mediaType === "image" && (
+                        <div className="relative">
+                          <select
+                            className="appearance-none rounded-full bg-zinc-100 py-1.5 pl-3 pr-7 text-xs font-medium text-zinc-700 transition hover:bg-zinc-200 focus:outline-none"
+                            aria-label="Resolution"
+                            value={imageSize}
+                            onChange={(e) =>
+                              setImageSize(e.target.value as ImageSize)
+                            }
+                          >
+                            {IMAGE_SIZES.map((size) => (
+                              <option key={size} value={size}>
+                                {size}
+                              </option>
+                            ))}
+                          </select>
+                          <svg
+                            className="pointer-events-none absolute right-2 top-1/2 size-3 -translate-y-1/2 text-zinc-500"
+                            viewBox="0 0 20 20"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <polyline points="5 8 10 13 15 8" />
+                          </svg>
+                        </div>
+                      )}
                     </div>
 
                     <button
@@ -716,7 +741,7 @@ export default function Home() {
 
             {generations.length === 0 && !isGenerating ? (
               <div className="rounded-lg border border-dashed border-zinc-200 px-4 py-12 text-center text-sm text-zinc-500">
-                Your generated images will appear here.
+                Your generated items will appear here.
               </div>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -728,7 +753,7 @@ export default function Home() {
                   >
                     <div className="relative aspect-square w-full overflow-hidden bg-zinc-100">
                       <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-zinc-100 via-zinc-200 to-zinc-100" />
-                      <span className="sr-only">Generating image…</span>
+                      <span className="sr-only">Generating…</span>
                     </div>
                     <div className="flex items-start justify-between gap-2 p-3">
                       <div className="min-w-0 flex-1 space-y-2">
@@ -738,99 +763,176 @@ export default function Home() {
                     </div>
                   </article>
                 )}
-                {generations.map((gen) => (
-                  <article
-                    className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-xs"
-                    key={gen.id}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setZoomed(gen)}
-                      className="group relative block aspect-square w-full overflow-hidden bg-zinc-100"
-                      aria-label="Zoom image"
+                {generations.map((gen) => {
+                  const isPending = gen.status === "pending";
+                  const isError = gen.status === "error";
+
+                  return (
+                    <article
+                      className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-xs flex flex-col justify-between"
+                      key={gen.id}
                     >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={gen.imageUrl}
-                        alt={gen.prompt}
-                        className="absolute inset-0 h-full w-full object-contain"
-                      />
-                      <span className="absolute right-2 top-2 grid size-8 place-items-center rounded-full bg-zinc-900/70 text-white opacity-0 transition group-hover:opacity-100">
-                        <svg
-                          className="size-4"
-                          viewBox="0 0 20 20"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.75"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden="true"
-                        >
-                          <circle cx="9" cy="9" r="5.5" />
-                          <line x1="9" y1="6.5" x2="9" y2="11.5" />
-                          <line x1="6.5" y1="9" x2="11.5" y2="9" />
-                          <line x1="13" y1="13" x2="16.5" y2="16.5" />
-                        </svg>
-                      </span>
-                    </button>
-                    <div className="flex items-start justify-between gap-2 p-3">
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <h3 className="truncate text-sm font-medium text-zinc-900">
-                          {gen.prompt}
-                        </h3>
-                        <p className="text-xs text-zinc-500">
-                          {[gen.aspectRatio, gen.imageSize]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleEdit(gen)}
-                          className="grid size-8 place-items-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
-                          aria-label="Edit image"
-                          title="Edit image"
-                        >
+                      {isPending ? (
+                        <div className="relative aspect-square w-full bg-zinc-50 flex flex-col items-center justify-center p-4">
+                          <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-zinc-50 via-zinc-100 to-zinc-50" />
+                          <div className="relative z-10 flex flex-col items-center gap-3">
+                            <svg
+                              className="size-8 animate-spin text-zinc-400"
+                              viewBox="0 0 20 20"
+                              fill="none"
+                              aria-hidden="true"
+                            >
+                              <circle
+                                cx="10"
+                                cy="10"
+                                r="7"
+                                stroke="currentColor"
+                                strokeOpacity="0.25"
+                                strokeWidth="2.5"
+                              />
+                              <path
+                                d="M10 3a7 7 0 0 1 7 7"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                                strokeLinecap="round"
+                              />
+                            </svg>
+                            <span className="text-xs font-medium text-zinc-500 animate-pulse">
+                              Generating video…
+                            </span>
+                          </div>
+                        </div>
+                      ) : isError ? (
+                        <div className="relative aspect-square w-full bg-red-50/50 flex flex-col items-center justify-center p-6 text-center">
                           <svg
-                            className="size-4"
+                            className="size-8 text-red-400 mb-2"
                             viewBox="0 0 20 20"
                             fill="none"
                             stroke="currentColor"
-                            strokeWidth="1.75"
+                            strokeWidth="2"
                             strokeLinecap="round"
                             strokeLinejoin="round"
-                            aria-hidden="true"
                           >
-                            <path d="M14 3.5a1.77 1.77 0 0 1 2.5 2.5L7 15.5 3.5 16.5l1-3.5Z" />
+                            <circle cx="10" cy="10" r="8" />
+                            <line x1="10" y1="8" x2="10" y2="12" />
+                            <line x1="10" y1="15" x2="10" y2="15.01" />
                           </svg>
-                        </button>
+                          <span className="text-xs font-semibold text-red-800">
+                            Generation Failed
+                          </span>
+                          <p className="mt-1 text-[11px] text-red-600 line-clamp-3">
+                            {gen.error || "Something went wrong"}
+                          </p>
+                        </div>
+                      ) : (
                         <button
                           type="button"
-                          onClick={() => handleDownload(gen)}
-                          className="grid size-8 place-items-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
-                          aria-label="Download image"
-                          title="Download image"
+                          onClick={() => setZoomed(gen)}
+                          className="group relative block aspect-square w-full overflow-hidden bg-zinc-100"
+                          aria-label={`Zoom ${gen.mediaType}`}
                         >
-                          <svg
-                            className="size-4"
-                            viewBox="0 0 20 20"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.75"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
-                          >
-                            <path d="M10 3v10" />
-                            <polyline points="6 9 10 13 14 9" />
-                            <path d="M4 16h12" />
-                          </svg>
+                          {gen.mediaType === "video" ? (
+                            <video
+                              src={gen.imageUrl}
+                              autoPlay
+                              loop
+                              muted
+                              playsInline
+                              className="absolute inset-0 h-full w-full object-cover"
+                            />
+                          ) : (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img
+                              src={gen.imageUrl}
+                              alt={gen.prompt}
+                              className="absolute inset-0 h-full w-full object-contain"
+                            />
+                          )}
+                          <span className="absolute right-2 top-2 grid size-8 place-items-center rounded-full bg-zinc-900/70 text-white opacity-0 transition group-hover:opacity-100">
+                            <svg
+                              className="size-4"
+                              viewBox="0 0 20 20"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.75"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden="true"
+                            >
+                              <circle cx="9" cy="9" r="5.5" />
+                              <line x1="9" y1="6.5" x2="9" y2="11.5" />
+                              <line x1="6.5" y1="9" x2="11.5" y2="9" />
+                              <line x1="13" y1="13" x2="16.5" y2="16.5" />
+                            </svg>
+                          </span>
                         </button>
+                      )}
+                      
+                      <div className="flex items-start justify-between gap-2 p-3">
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <h3 className="truncate text-sm font-medium text-zinc-900">
+                            {gen.prompt}
+                          </h3>
+                          <p className="text-xs text-zinc-500">
+                            {[
+                              gen.mediaType.toUpperCase(),
+                              gen.aspectRatio,
+                              gen.imageSize
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </p>
+                        </div>
+                        {!isPending && !isError && (
+                          <div className="flex shrink-0 items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleEdit(gen)}
+                              className="grid size-8 place-items-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+                              aria-label={`Edit ${gen.mediaType}`}
+                              title={`Edit ${gen.mediaType}`}
+                            >
+                              <svg
+                                className="size-4"
+                                viewBox="0 0 20 20"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.75"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path d="M14 3.5a1.77 1.77 0 0 1 2.5 2.5L7 15.5 3.5 16.5l1-3.5Z" />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDownload(gen)}
+                              className="grid size-8 place-items-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+                              aria-label={`Download ${gen.mediaType}`}
+                              title={`Download ${gen.mediaType}`}
+                            >
+                              <svg
+                                className="size-4"
+                                viewBox="0 0 20 20"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.75"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path d="M10 3v10" />
+                                <polyline points="6 9 10 13 14 9" />
+                                <path d="M4 16h12" />
+                              </svg>
+                            </button>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  </article>
-                ))}
+                    </article>
+                  );
+                })}
               </div>
             )}
           </section>
@@ -843,15 +945,26 @@ export default function Home() {
           onClick={() => setZoomed(null)}
           role="dialog"
           aria-modal="true"
-          aria-label="Zoomed image"
+          aria-label={`Zoomed ${zoomed.mediaType}`}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={zoomed.imageUrl}
-            alt={zoomed.prompt}
-            className="h-dvh max-w-full object-contain"
-            onClick={(e) => e.stopPropagation()}
-          />
+          {zoomed.mediaType === "video" ? (
+            <video
+              src={zoomed.imageUrl}
+              controls
+              autoPlay
+              loop
+              className="max-h-dvh max-w-full object-contain"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={zoomed.imageUrl}
+              alt={zoomed.prompt}
+              className="h-dvh max-w-full object-contain"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
           <button
             type="button"
             onClick={() => setZoomed(null)}
